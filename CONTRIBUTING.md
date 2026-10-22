@@ -26,6 +26,24 @@ flake는 `x86_64-linux`, `aarch64-linux`, `aarch64-darwin`만 지원한다. 평�
 
 수동 확인: 마우스/터치/펜으로 그리기, 탭으로 점 찍기, 두 화면 동시 입력, 10초 후 소멸, 새로고침 시 남은 그림 복원, 화면 크기 변경, 서버 재시작 후 재접속. UI·도구·로그인·장식은 추가하지 않는다.
 
+## 웹 아이콘과 공유 카드
+
+웹 탭은 `client/icon.svg`, 설치 아이콘은 타원을 제거하고 전체를 분홍색으로 채운 PNG를 사용한다. `scripts/generate-icons.py`가 SVG의 색상과 선을 읽어 Apple touch 및 PWA 아이콘을 생성한다.
+
+```sh
+nix shell --inputs-from . nixpkgs#python3 nixpkgs#resvg --command python3 scripts/generate-icons.py
+```
+
+공유 카드는 `scripts/generate-og-image.py`로 생성한다. Noto Sans CJK KR 폰트 파일 경로를 인자로 전달한다.
+
+```sh
+nix build --inputs-from . nixpkgs#noto-fonts-cjk-sans --no-link --print-out-paths
+# 위 출력 경로의 share/fonts/opentype/noto-cjk/NotoSansCJK-VF.otf.ttc 사용
+nix shell --inputs-from . nixpkgs#python3 nixpkgs#resvg --command python3 scripts/generate-og-image.py /path/to/NotoSansCJK-VF.otf.ttc
+```
+
+공유 메타데이터의 배포 주소는 `client/index.html`의 `https://bukupan.hooreique.com/`이다. 도메인을 바꿀 때 canonical·Open Graph·Twitter 이미지 주소도 함께 수정한다. SNS는 HTML의 정적 메타데이터와 `client/og-image.png`를 사용하며 JavaScript 실행에 의존하지 않는다.
+
 ## 운영 CLI와 검증
 
 `cli/bukupan.py`는 Python 표준 라이브러리만 사용한다. `cli/package.nix`가 서버·클라이언트·Caddy 템플릿 store 경로와 실행 의존성을 주입한다. `site`는 사이트 파일과 사이트별 GC root만, `service`는 Linux systemd 사용자 서비스와 백엔드 GC root만 관리한다. `serve`는 `exec`로 서버를 실행한다. 서버 Go 플래그와 공유 프로토콜은 독립적으로 유지한다.
