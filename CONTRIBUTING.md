@@ -1,6 +1,6 @@
 # 개발
 
-브라우저는 WebGL2 (미지원 시 Canvas 2D) / Pointer Events / WebSocket과 순수 JavaScript, 서버는 Go 표준 라이브러리만 사용한다. npm이나 별도 모듈 설치는 없다.
+브라우저는 WebGL2 / Pointer Events / WebSocket과 순수 JavaScript, 서버는 Go 표준 라이브러리만 사용한다. npm이나 별도 모듈 설치는 없다. WebGL2 미지원 환경에서는 안내만 표시하며 입력 처리와 서버 연결을 시작하지 않는다.
 
 ```sh
 nix develop

@@ -1,7 +1,7 @@
 "use strict";
 
 // Capsules share a maximum-intensity surface: overlapping caps never add light.
-function createStrokeRenderer(canvas, capacity) {
+function createStrokeRenderer(canvas, capacity, onRestore = () => {}) {
   const gl = canvas.getContext("webgl2", { alpha: false, antialias: false, depth: false, stencil: false });
   if (!gl) return null;
   let origin = Date.now();
@@ -79,7 +79,7 @@ function createStrokeRenderer(canvas, capacity) {
   }
   initialize();
   canvas.addEventListener("webglcontextlost", (event) => event.preventDefault());
-  canvas.addEventListener("webglcontextrestored", () => { initialize(); requestDraw(); });
+  canvas.addEventListener("webglcontextrestored", () => { initialize(); onRestore(); });
   return {
     invalidate() { dirty = true; },
     render(segments, timestamp, lifetime, width, height) {

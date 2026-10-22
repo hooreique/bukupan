@@ -19,3 +19,16 @@ canvas {
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
+
+.unsupported {
+  margin: 0;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 24px;
+  color: #fff;
+  font-family: sans-serif;
+  text-align: center;
+  line-height: 1.6;
+}
