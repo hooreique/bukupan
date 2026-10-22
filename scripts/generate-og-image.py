@@ -16,13 +16,19 @@ ET.register_namespace("", namespace)
 svg = ET.fromstring('''
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
   <rect width="1200" height="630" fill="#000"/>
-  <text x="536" y="292" fill="#fff" font-family="Noto Sans CJK KR" font-size="92" font-weight="700">부끄판</text>
-  <text x="542" y="369" fill="#f4b8c8" font-family="Noto Sans CJK KR" font-size="30">함께 그리고, 사라지는 그림.</text>
-  <text x="542" y="427" fill="#999" font-family="Noto Sans CJK KR" font-size="23">검은 화면 위 흰 선, 단 10초 동안.</text>
+  <defs>
+    <filter id="soft-title" x="-10%" y="-20%" width="120%" height="140%">
+      <feGaussianBlur stdDeviation="2.5"/>
+    </filter>
+  </defs>
+  <g font-family="Noto Sans CJK KR" font-size="152" font-weight="900">
+    <text x="604" y="371" fill="#f4b8c8" filter="url(#soft-title)">부끄</text>
+    <text x="882" y="371" fill="#fff">판</text>
+  </g>
 </svg>
 ''')
 icon = ET.parse(client / "icon.svg").getroot()
-icon.set("x", "72")
+icon.set("x", "140")
 icon.set("y", "107")
 icon.set("width", "416")
 icon.set("height", "416")
