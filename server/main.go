@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -195,8 +196,21 @@ func (r *room) maintain(ctx context.Context) {
 }
 
 func main() {
+	host := flag.String("host", "127.0.0.1", "HTTP/WebSocket bind host (overrides the host in -listen)")
 	listen := flag.String("listen", "127.0.0.1:8080", "HTTP/WebSocket listen address")
 	flag.Parse()
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "host" {
+			if *host == "" {
+				log.Fatal("-host must not be empty")
+			}
+			_, port, err := net.SplitHostPort(*listen)
+			if err != nil {
+				log.Fatalf("invalid -listen address: %v", err)
+			}
+			*listen = net.JoinHostPort(*host, port)
+		}
+	})
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	r := newRoom()
