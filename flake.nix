@@ -16,41 +16,8 @@
       packages = forAllSys (
         pkgs:
         let
-          server = pkgs.buildGoModule {
-            pname = "bukupan-server";
-            version = "0.1.0";
-            src = pkgs.lib.fileset.toSource {
-              root = ./.;
-              fileset = pkgs.lib.fileset.unions [
-                ./go.mod
-                ./server
-              ];
-            };
-            vendorHash = null;
-            env.CGO_ENABLED = "0";
-            subPackages = [ "server" ];
-            ldflags = [
-              "-s"
-              "-w"
-            ];
-            postInstall = ''
-              mv "$out/bin/server" "$out/bin/bukupan-server"
-            '';
-            meta = {
-              mainProgram = "bukupan-server";
-              license = pkgs.lib.licenses.mit;
-              platforms = [
-                "aarch64-darwin"
-                "aarch64-linux"
-                "x86_64-linux"
-              ];
-            };
-          };
-
-          client = pkgs.runCommand "bukupan-client" { } ''
-            mkdir -p "$out"
-            cp ${./client}/* "$out/"
-          '';
+          server = pkgs.callPackage ./server/package.nix { };
+          client = pkgs.callPackage ./client/package.nix { };
           cli = pkgs.callPackage ./cli/package.nix {
             backendPackage = server;
             clientPackage = client;
@@ -63,58 +30,19 @@
           bukupan-client = client;
           inherit client;
 
-          dev-server = pkgs.writeShellApplication {
-            name = "bukupan-dev-server";
-            runtimeInputs = [
-              server
-              pkgs.caddy
-              pkgs.coreutils
-            ];
-            text = ''
-              export BUKUPAN_CLIENT_ROOT="''${BUKUPAN_CLIENT_ROOT:-${client}}"
-              ${builtins.readFile ./scripts/dev-server.sh}
-            '';
+          dev-server = pkgs.callPackage ./nix/dev-server.nix {
+            backendPackage = server;
+            clientPackage = client;
           };
-
         }
       );
 
       checks = forAllSys (pkgs: {
-        cli =
-          pkgs.runCommand "bukupan-cli-tests"
-            {
-              nativeBuildInputs = [
-                pkgs.python3
-                pkgs.caddy
-                pkgs.go
-                pkgs.stdenv.cc
-              ]
-              ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.systemd ];
-            }
-            ''
-                  cp -r ${./.} source
-                  chmod -R u+w source
-                  cd source
-                  export HOME=$TMPDIR
-              ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux "export SYSTEMD_UNIT_PATH=${pkgs.systemd}/example/systemd/user"}
-                  go build -o "$TMPDIR/bukupan-server" ./server
-                  export BUKUPAN_TEST_SERVER="$TMPDIR/bukupan-server"
-                  python3 -m unittest discover -s cli -v
-                  go test ./...
-                  go test -race ./...
-                  touch "$out"
-            '';
+        cli = pkgs.callPackage ./nix/checks.nix { };
       });
 
       devShells = forAllSys (pkgs: {
-        default = pkgs.mkShell {
-          packages = [
-            pkgs.go
-            pkgs.python3
-            pkgs.caddy
-            pkgs.nixfmt
-          ];
-        };
+        default = pkgs.callPackage ./shell.nix { };
       });
     };
 }
