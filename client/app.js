@@ -64,6 +64,9 @@ function render() {
   context.lineCap = "round";
   // 'lighten' keeps overlapping segment caps from leaving bright beads as they fade.
   context.globalCompositeOperation = "lighten";
+  const size = Math.max(width, height);
+  const offsetX = (width - size) / 2;
+  const offsetY = (height - size) / 2;
   for (const [id, segment] of segments) {
     const age = Math.max(0, time - segment.at) / lifetime;
     if (age >= 1) {
@@ -72,10 +75,10 @@ function render() {
     }
     // Smoothstep fades gently at both ends of the ten-second lifetime.
     context.globalAlpha = 1 - age * age * (3 - 2 * age);
-    const x1 = segment.x1 * width;
-    const y1 = segment.y1 * height;
-    const x2 = segment.x2 * width;
-    const y2 = segment.y2 * height;
+    const x1 = segment.x1 * size + offsetX;
+    const y1 = segment.y1 * size + offsetY;
+    const x2 = segment.x2 * size + offsetX;
+    const y2 = segment.y2 * size + offsetY;
     context.beginPath();
     if (x1 === x2 && y1 === y2) {
       context.arc(x1, y1, 1.5, 0, Math.PI * 2);
@@ -103,9 +106,11 @@ function resize() {
 
 function position(event) {
   const rect = canvas.getBoundingClientRect();
+  // Share a centered square; the viewport crops its edges without stretching it.
+  const size = Math.max(rect.width, rect.height);
   return {
-    x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
-    y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
+    x: Math.max(0, Math.min(1, (event.clientX - rect.left + (size - rect.width) / 2) / size)),
+    y: Math.max(0, Math.min(1, (event.clientY - rect.top + (size - rect.height) / 2) / size)),
   };
 }
 
