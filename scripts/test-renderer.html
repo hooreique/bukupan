@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Stroke renderer checks</title>
+<canvas width="400" height="200"></canvas>
+<pre id="result">Running…</pre>
+<script>function requestDraw() {}</script>
+<script src="../client/renderer.js"></script>
+<script>
+const canvas = document.querySelector("canvas");
+const renderer = createStrokeRenderer(canvas, 16000);
+if (!renderer) throw new Error("WebGL2 unavailable");
+const gl = canvas.getContext("webgl2");
+const time = Date.now();
+const segments = new Map();
+function line(id, x1, y1, x2, y2) {
+  segments.set(id, { x1, y1, x2, y2, at: time - 5000 });
+}
+function render(at = time) {
+  renderer.invalidate();
+  renderer.render(segments, at, 10000, 400, 200);
+}
+function pixel(x, y) {
+  const value = new Uint8Array(4);
+  gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, value);
+  return value[0];
+}
+function check(condition, label) {
+  if (!condition) {
+    document.querySelector("#result").textContent = `FAIL: ${label}`;
+    throw new Error(label);
+  }
+}
+line("a", .25, .5, .5, .5);
+line("b", .5, .5, .75, .5);
+render();
+const body = pixel(150, 100), join = pixel(200, 100), edge = pixel(150, 101);
+check(Math.abs(body - join) <= 1 && body >= 100 && body <= 150, "join brightness");
+line("duplicate", .25, .5, .5, .5);
+render();
+check(pixel(150, 101) === edge, "overlapping antialiased edges");
+segments.clear();
+line("dot", .5, .5, .5, .5);
+render();
+check(pixel(200, 100) >= 100, "dot");
+segments.clear();
+for (let i = 0; i < 16000; i++) {
+  line(i, (i % 100) / 100, Math.floor(i / 100) / 160,
+    (i % 100) / 100 + .002, Math.floor(i / 100) / 160 + .002);
+}
+render();
+gl.finish();
+check(gl.getError() === gl.NO_ERROR, "16000 instances without GL errors");
+// Exercise the unchanged buffer path while the shader advances the fade.
+renderer.render(segments, time + 10000, 10000, 400, 200);
+check(pixel(200, 100) === 0, "expiration");
+document.querySelector("#result").textContent =
+  `PASS: join=${join}, body=${body}; overlapping edges; dot; 16000 instances; expiration`;
+</script>

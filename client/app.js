@@ -1,7 +1,8 @@
 "use strict";
 
 const canvas = document.querySelector("canvas");
-const context = canvas.getContext("2d", { alpha: false });
+const renderer = createStrokeRenderer(canvas, 16000);
+const context = renderer ? null : canvas.getContext("2d", { alpha: false });
 const segments = new Map();
 const pointers = new Map();
 const clientID = Array.from(crypto.getRandomValues(new Uint32Array(4)), (n) => n.toString(16)).join("-");
@@ -24,6 +25,7 @@ const now = () => performance.now() + clockOffset;
 
 function remember(segment) {
   segments.set(segment.id, segment);
+  renderer?.invalidate();
   while (segments.size > maxSegments) {
     segments.delete(segments.keys().next().value);
   }
@@ -54,16 +56,18 @@ function render() {
   frame = 0;
   flush();
   const time = now();
-  context.globalAlpha = 1;
-  context.globalCompositeOperation = "source-over";
-  context.fillStyle = "#000";
-  context.fillRect(0, 0, width, height);
-  context.strokeStyle = "#fff";
-  context.fillStyle = "#fff";
-  context.lineWidth = 3;
-  context.lineCap = "round";
-  // 'lighten' keeps overlapping segment caps from leaving bright beads as they fade.
-  context.globalCompositeOperation = "lighten";
+  if (context) {
+    context.globalAlpha = 1;
+    context.globalCompositeOperation = "source-over";
+    context.fillStyle = "#000";
+    context.fillRect(0, 0, width, height);
+    context.strokeStyle = "#fff";
+    context.fillStyle = "#fff";
+    context.lineWidth = 3;
+    context.lineCap = "round";
+    // Best-effort overlap handling for browsers without WebGL2.
+    context.globalCompositeOperation = "lighten";
+  }
   const size = Math.max(width, height);
   const offsetX = (width - size) / 2;
   const offsetY = (height - size) / 2;
@@ -71,8 +75,10 @@ function render() {
     const age = Math.max(0, time - segment.at) / lifetime;
     if (age >= 1) {
       segments.delete(id);
+      renderer?.invalidate();
       continue;
     }
+    if (!context) continue;
     // Smoothstep fades gently at both ends of the ten-second lifetime.
     context.globalAlpha = 1 - age * age * (3 - 2 * age);
     const x1 = segment.x1 * size + offsetX;
@@ -89,6 +95,7 @@ function render() {
       context.stroke();
     }
   }
+  renderer?.render(segments, time, lifetime, width, height);
   if (segments.size) requestDraw();
 }
 
@@ -99,7 +106,7 @@ function resize() {
   const ratio = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.round(width * ratio);
   canvas.height = Math.round(height * ratio);
-  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context?.setTransform(ratio, 0, 0, ratio, 0, 0);
   pointers.clear();
   requestDraw();
 }
@@ -175,6 +182,7 @@ function connect() {
       clockOffset = message.now - performance.now();
       lifetime = message.lifetime;
       segments.clear();
+      renderer?.invalidate();
       pending = [];
       ready = true;
       retryDelay = 500;
