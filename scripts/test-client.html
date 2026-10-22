@@ -1,0 +1,37 @@
+<!doctype html><meta charset="utf-8"><title>Client integration</title>
+<pre id="result">RUNNING</pre>
+<script>
+(async()=>{
+ const result=document.querySelector('#result');
+ const wait=async(predicate,label,timeout=5000)=>{const start=Date.now();while(!predicate()){if(Date.now()-start>timeout)throw Error(label);await new Promise(r=>setTimeout(r,20));}};
+ const check=(ok,label)=>{if(!ok)throw Error(label);};
+ try {
+  const frames=[];
+  for(let i=0;i<2;i++){
+   const f=document.createElement('iframe');
+   f.src = 'test-client-frame.html';
+   document.body.append(f);frames.push(f);
+  }
+  const [a,b]=frames.map(f=>f.contentWindow);
+  await wait(()=>a.observed&&b.observed&&a.connections[0]?.readyState===1&&b.connections[0]?.readyState===1,'initial snapshots');
+  const canvas=a.document.querySelector('canvas');
+  // Synthetic events cannot acquire pointer capture.
+  canvas.setPointerCapture=()=>{};
+  canvas.dispatchEvent(new a.PointerEvent('pointerdown',{button:0,pointerId:1,clientX:51,clientY:60}));
+  check(a.observed.size===1,'immediate local draw');
+  const local=[...a.observed.values()][0];
+  await wait(()=>b.observed.size===1,'shared drawing');
+  await wait(()=>[...a.observed.values()][0]!==local,'server echo merge');
+  check(a.observed.size===1,'echo duplicated local segment');
+  const remote=[...b.observed.values()][0],echo=[...a.observed.values()][0];
+  check(remote.id===echo.id&&remote.x1===local.x1&&remote.at===echo.at,'identity coordinates timestamp');
+  b.connections[0].close();
+  await wait(()=>b.connections.length===2&&b.connections[1].readyState===1&&b.observed.size===1,'reconnect snapshot');
+  await wait(()=>a.observed.size===0&&b.observed.size===0,'expiration',12000);
+  // Invalid server data must close the connection and reconnect.
+  a.connections[0].dispatchEvent(new a.MessageEvent('message',{data:'invalid'}));
+  await wait(()=>a.connections.length===2&&a.connections[1].readyState===1,'invalid data reconnect');
+  result.textContent='PASS sharing, immediate local draw, echo merge, reconnect, expiration, invalid server message';
+ }catch(e){result.textContent='FAIL '+e.stack;}
+})();
+</script>

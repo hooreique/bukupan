@@ -13,7 +13,7 @@ function main() {
   }
   const segments = new Map();
   const pointers = new Map();
-  const clientID = Array.from(crypto.getRandomValues(new Uint32Array(4)), (n) => n.toString(16)).join("-");
+  let clientID = crypto.getRandomValues(new Uint8Array(16));
   const maxSegments = 16000;
   const maxBatch = 128;
   let sequence = 0;
@@ -56,7 +56,7 @@ function main() {
       return;
     }
     while (pending.length) {
-      socket.send(JSON.stringify({ type: "draw", segments: pending.splice(0, maxBatch) }));
+      socket.send(strokeCodec.encodeDraw(pending.splice(0, maxBatch)));
     }
   }
 
@@ -96,9 +96,14 @@ function main() {
   }
 
   function draw(from, to) {
+    if (sequence >= 0xffffffff) {
+      clientID = crypto.getRandomValues(new Uint8Array(16));
+      sequence = 0;
+    }
     const segment = {
-      id: `${clientID}:${sequence++}`,
-      x1: from.x, y1: from.y, x2: to.x, y2: to.y, at: Math.round(now()),
+      id: strokeCodec.key(clientID, sequence), clientID, sequence: sequence++,
+      x1: Math.fround(from.x), y1: Math.fround(from.y),
+      x2: Math.fround(to.x), y2: Math.fround(to.y), at: Math.round(now()),
     };
     remember(segment);
     if (ready) {
@@ -147,11 +152,21 @@ function main() {
     const url = new URL("/ws", location.href);
     url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const connection = new WebSocket(url);
+    connection.binaryType = "arraybuffer";
     socket = connection;
 
     connection.addEventListener("message", (event) => {
       if (connection !== socket) return;
-      const message = JSON.parse(event.data);
+      let message;
+      try {
+        message = strokeCodec.decode(event.data);
+        if (!ready && message.type !== "snapshot") throw new Error("Missing snapshot");
+      } catch {
+        ready = false;
+        pending = [];
+        connection.close();
+        return;
+      }
       if (message.type === "snapshot") {
         clockOffset = message.now - performance.now();
         lifetime = message.lifetime;

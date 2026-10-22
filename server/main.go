@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"log"
 	"net"
@@ -19,23 +18,6 @@ const (
 	maxSegments = 16000
 	maxBatch    = 128
 )
-
-// Coordinates are fractions of the viewport; At is assigned by the server.
-type segment struct {
-	ID string  `json:"id"`
-	X1 float64 `json:"x1"`
-	Y1 float64 `json:"y1"`
-	X2 float64 `json:"x2"`
-	Y2 float64 `json:"y2"`
-	At int64   `json:"at"`
-}
-
-type message struct {
-	Type     string    `json:"type"`
-	Now      int64     `json:"now,omitempty"`
-	Lifetime int64     `json:"lifetime,omitempty"`
-	Segments []segment `json:"segments"`
-}
 
 type peer struct {
 	ws   *websocket
@@ -71,7 +53,7 @@ func (p *peer) writeLoop() {
 		case <-p.done:
 			return
 		case data := <-p.out:
-			err = p.ws.writeFrame(opText, data)
+			err = p.ws.writeFrame(opBinary, data)
 		case <-ticker.C:
 			err = p.ws.writeFrame(opPing, nil)
 		}
@@ -82,25 +64,33 @@ func (p *peer) writeLoop() {
 }
 
 type room struct {
-	mu       sync.Mutex
-	segments []segment
-	peers    map[*peer]struct{}
+	mu          sync.Mutex
+	segments    [maxSegments]segment
+	head, count int
+	lastAt      int64
+	peers       map[*peer]struct{}
 }
 
 func newRoom() *room {
-	return &room{segments: make([]segment, 0), peers: make(map[*peer]struct{})}
+	return &room{peers: make(map[*peer]struct{})}
 }
 
 // Called with mu held. Segments are ordered by the server's receipt time.
 func (r *room) prune(now int64) {
-	first := 0
-	for first < len(r.segments) && now-r.segments[first].At >= lifetime.Milliseconds() {
-		first++
+	for r.count > 0 && now-r.segments[r.head].At >= lifetime.Milliseconds() {
+		r.segments[r.head] = segment{}
+		r.head = (r.head + 1) % maxSegments
+		r.count--
 	}
-	if first > 0 {
-		n := copy(r.segments, r.segments[first:])
-		clear(r.segments[n:])
-		r.segments = r.segments[:n]
+}
+
+// Called with mu held; no stored segment is moved.
+func (r *room) append(s segment) {
+	r.segments[(r.head+r.count)%maxSegments] = s
+	if r.count == maxSegments {
+		r.head = (r.head + 1) % maxSegments
+	} else {
+		r.count++
 	}
 }
 
@@ -109,40 +99,33 @@ func (r *room) join(p *peer) {
 	defer r.mu.Unlock()
 	now := time.Now().UnixMilli()
 	r.prune(now)
-	data, _ := json.Marshal(message{"snapshot", now, lifetime.Milliseconds(), r.segments})
+	data := encodeHeader(snapshot, r.count, now, uint32(lifetime.Milliseconds()))
+	for i := 0; i < r.count; i++ {
+		encodeSegment(data[headerSize+i*snapshotRecordSize:], r.segments[(r.head+i)%maxSegments], true)
+	}
 	p.enqueue(data)
 	r.peers[p] = struct{}{}
 }
 
 func (r *room) draw(data []byte) bool {
-	var msg message
-	if json.Unmarshal(data, &msg) != nil || msg.Type != "draw" || len(msg.Segments) == 0 || len(msg.Segments) > maxBatch {
+	segments, ok := decodeDraw(data)
+	if !ok {
 		return false
-	}
-	for _, s := range msg.Segments {
-		if len(s.ID) == 0 || len(s.ID) > 80 {
-			return false
-		}
-		for _, v := range []float64{s.X1, s.Y1, s.X2, s.Y2} {
-			if v < 0 || v > 1 {
-				return false
-			}
-		}
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := time.Now().UnixMilli()
+	if now < r.lastAt {
+		now = r.lastAt
+	}
+	r.lastAt = now
 	r.prune(now)
-	for i := range msg.Segments {
-		msg.Segments[i].At = now
+	encoded := encodeHeader(serverDraw, len(segments), now, 0)
+	for i := range segments {
+		segments[i].At = now
+		r.append(segments[i])
+		encodeSegment(encoded[headerSize+i*recordSize:], segments[i], false)
 	}
-	r.segments = append(r.segments, msg.Segments...)
-	if extra := len(r.segments) - maxSegments; extra > 0 {
-		n := copy(r.segments, r.segments[extra:])
-		clear(r.segments[n:])
-		r.segments = r.segments[:n]
-	}
-	encoded, _ := json.Marshal(message{Type: "draw", Segments: msg.Segments})
 	for p := range r.peers {
 		p.enqueue(encoded)
 	}

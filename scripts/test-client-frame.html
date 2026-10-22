@@ -1,0 +1,15 @@
+<!doctype html><meta charset="utf-8"><title>Client test frame</title>
+<canvas style="width:300px;height:300px"></canvas>
+<script>
+window.connections = [];
+const NativeSocket = WebSocket;
+window.WebSocket = class extends NativeSocket {
+  constructor(url) { super(url); connections.push(this); }
+};
+window.createStrokeRenderer = () => ({
+  invalidate() {},
+  render(segments) { window.observed = segments; },
+});
+</script>
+<script src="../client/codec.js"></script>
+<script src="../client/app.js"></script>

@@ -19,13 +19,14 @@ import (
 const (
 	opContinuation = 0
 	opText         = 1
+	opBinary       = 2
 	opClose        = 8
 	opPing         = 9
 	opPong         = 10
 	maxMessage     = 32 * 1024
 )
 
-// A small RFC 6455 transport: masked client frames, text fragmentation, and
+// A small RFC 6455 transport: masked client frames, binary fragmentation, and
 // control frames. No compression or extensions are negotiated.
 type websocket struct {
 	conn    net.Conn
@@ -153,9 +154,9 @@ func (ws *websocket) readMessage() ([]byte, error) {
 			}
 			ws.writeFrame(opClose, data)
 			return nil, io.EOF
-		case opText:
+		case opBinary:
 			if fragmented {
-				return nil, errors.New("text frame during fragmented message")
+				return nil, errors.New("binary frame during fragmented message")
 			}
 		case opContinuation:
 			if !fragmented {
@@ -169,9 +170,6 @@ func (ws *websocket) readMessage() ([]byte, error) {
 		}
 		message = append(message, data...)
 		if final {
-			if !utf8.Valid(message) {
-				return nil, errors.New("invalid UTF-8")
-			}
 			return message, nil
 		}
 		fragmented = true
