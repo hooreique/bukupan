@@ -71,7 +71,7 @@ cat > "$work_dir/Caddyfile" <<'CADDY'
 }
 CADDY
 
-bukupan -listen "$BUKUPAN_UPSTREAM" &
+bukupan-server -listen "$BUKUPAN_UPSTREAM" &
 server_pid=$!
 XDG_CONFIG_HOME="$work_dir/config" XDG_DATA_HOME="$work_dir/data" \
   caddy run --config "$work_dir/Caddyfile" --adapter caddyfile &

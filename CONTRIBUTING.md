@@ -26,6 +26,16 @@ flake는 `x86_64-linux`, `aarch64-linux`, `aarch64-darwin`만 지원한다. 평�
 
 수동 확인: 마우스/터치/펜으로 그리기, 탭으로 점 찍기, 두 화면 동시 입력, 10초 후 소멸, 새로고침 시 남은 그림 복원, 화면 크기 변경, 서버 재시작 후 재접속. UI·도구·로그인·장식은 추가하지 않는다.
 
-## Caddy
+## 운영 CLI와 검증
 
-설치 기본 경로는 `/etc/caddy/conf.d/bukupan.caddy`, `/srv/bukupan`이며 도메인은 `bukupan.localhost`다. 상위 Caddyfile의 import는 직접 추가한다. 설치를 다시 실행하면 해당 설정 파일과 세 정적 파일을 갱신한다. Caddy 실행 계정이 자산 경로의 상위 디렉터리까지 읽고 탐색할 수 있어야 한다. 자산은 복사하므로 Nix GC 후에도 남는다. 서버 프로세스 관리와 Caddy 리로드는 운영 환경에서 처리한다.
+`cli/bukupan.py`는 Python 표준 라이브러리만 사용한다. `cli/package.nix`가 서버·클라이언트·Caddy 템플릿 store 경로와 실행 의존성을 주입한다. `site`는 사이트 파일과 사이트별 GC root만, `service`는 Linux systemd 사용자 서비스와 백엔드 GC root만 관리한다. `serve`는 `exec`로 서버를 실행한다. 서버 Go 플래그와 공유 프로토콜은 독립적으로 유지한다.
+
+```sh
+python3 -m unittest discover -s cli -v
+nix flake check
+nix build .#bukupan .#bukupan-server .#bukupan-client .#dev-server
+```
+
+CLI 테스트는 임시 XDG 디렉터리와 systemctl·loginctl·nix-store 대역을 사용한다. 실제 사용자 서비스는 조작하지 않는다. `nix flake check`는 실제 Go 백엔드와 임시 Caddy로 정적 파일·healthz·WebSocket 연결도 확인한다. 로컬에서 같은 검증을 하려면 Go 서버를 빌드하고 `BUKUPAN_TEST_SERVER`에 실행 파일 경로를 지정한다. Linux에서는 공백과 `%`를 포함한 유닛 경로를 `systemd-analyze verify`로 확인한다. Python 캐시는 Git에서 제외한다.
+
+운영·전환 절차는 README를 따른다. Caddy master 설정 import와 검증·적용은 사용자가 수행한다. 기존 설치 파일과 복사 자산을 자동 인수·삭제하지 않는다.

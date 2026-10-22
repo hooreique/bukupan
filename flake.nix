@@ -17,7 +17,7 @@
         pkgs:
         let
           server = pkgs.buildGoModule {
-            pname = "bukupan";
+            pname = "bukupan-server";
             version = "0.1.0";
             src = pkgs.lib.fileset.toSource {
               root = ./.;
@@ -34,10 +34,10 @@
               "-w"
             ];
             postInstall = ''
-              mv "$out/bin/server" "$out/bin/bukupan"
+              mv "$out/bin/server" "$out/bin/bukupan-server"
             '';
             meta = {
-              mainProgram = "bukupan";
+              mainProgram = "bukupan-server";
               license = pkgs.lib.licenses.mit;
               platforms = [
                 "aarch64-darwin"
@@ -51,9 +51,16 @@
             mkdir -p "$out"
             cp ${./client}/* "$out/"
           '';
+          cli = pkgs.callPackage ./cli/package.nix {
+            backendPackage = server;
+            clientPackage = client;
+          };
         in
         {
-          default = server;
+          default = cli;
+          bukupan = cli;
+          bukupan-server = server;
+          bukupan-client = client;
           inherit client;
 
           dev-server = pkgs.writeShellApplication {
@@ -69,21 +76,41 @@
             '';
           };
 
-          install = pkgs.writeShellApplication {
-            name = "bukupan-install";
-            runtimeInputs = [ pkgs.coreutils ];
-            text = ''
-              export BUKUPAN_CLIENT_PACKAGE=${client}
-              ${builtins.readFile ./scripts/install.sh}
-            '';
-          };
         }
       );
+
+      checks = forAllSys (pkgs: {
+        cli =
+          pkgs.runCommand "bukupan-cli-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.caddy
+                pkgs.go
+                pkgs.stdenv.cc
+              ]
+              ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.systemd ];
+            }
+            ''
+                  cp -r ${./.} source
+                  chmod -R u+w source
+                  cd source
+                  export HOME=$TMPDIR
+              ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux "export SYSTEMD_UNIT_PATH=${pkgs.systemd}/example/systemd/user"}
+                  go build -o "$TMPDIR/bukupan-server" ./server
+                  export BUKUPAN_TEST_SERVER="$TMPDIR/bukupan-server"
+                  python3 -m unittest discover -s cli -v
+                  go test ./...
+                  go test -race ./...
+                  touch "$out"
+            '';
+      });
 
       devShells = forAllSys (pkgs: {
         default = pkgs.mkShell {
           packages = [
             pkgs.go
+            pkgs.python3
             pkgs.caddy
             pkgs.nixfmt
           ];

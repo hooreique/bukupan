@@ -1,0 +1,13 @@
+$domain {
+  handle /ws {
+    reverse_proxy $upstream
+  }
+  handle /healthz {
+    reverse_proxy $upstream
+  }
+  handle {
+    root * $client_root
+    header Cache-Control "no-cache"
+    file_server
+  }
+}
