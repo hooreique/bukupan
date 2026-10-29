@@ -23,7 +23,7 @@ button:disabled { opacity: .3; cursor: default; background: none; }
 .toolbar button[aria-pressed="true"] { background: #f0bfd0; color: #2b151e; }
 .toolbar svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .divider { height: 24px; width: 1px; background: #40363c; margin: 0 3px; flex-shrink: 0; }
-.navigation { position: fixed; bottom: max(30px, env(safe-area-inset-bottom)); right: max(20px, env(safe-area-inset-right)); border-radius: 13px; padding: 3px; }
+.navigation { position: fixed; bottom: max(30px, env(safe-area-inset-bottom)); right: max(20px, env(safe-area-inset-right)); border-radius: 13px; padding: 3px; width: max-content; max-width: calc(100vw - 32px); white-space: nowrap; }
 .navigation button { min-width: 38px; min-height: 40px; font-size: 21px; }
 .navigation #home { padding: 0 12px; font-size: 12px; }
 #zoom-level { min-width: 42px; text-align: center; font-size: 11px; font-variant-numeric: tabular-nums; color: #bba9b1; }

@@ -463,7 +463,7 @@ func (s *boardStore) Patch(ids []string, area bounds) ([]drawing, error) {
 func (s *boardStore) History(author string) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rows, err := s.db.Query("SELECT id FROM actions WHERE author=? AND undone=0 ORDER BY revision DESC LIMIT 50", author)
+	rows, err := s.db.Query(`SELECT a.id FROM actions a WHERE a.author=? AND a.undone=0 AND (EXISTS (SELECT 1 FROM strokes s WHERE s.action=a.id) OR EXISTS (SELECT 1 FROM cuts c WHERE c.eraser=a.id)) ORDER BY a.revision DESC LIMIT 50`, author)
 	if err != nil {
 		return nil, err
 	}
@@ -483,6 +483,11 @@ func (s *boardStore) History(author string) ([]string, error) {
 func (s *boardStore) Backup(destination string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, err := os.Lstat(destination); err == nil {
+		return fmt.Errorf("backup destination already exists: %s", destination)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	file, err := os.CreateTemp(filepath.Dir(destination), ".bukupan-backup-*")
 	if err != nil {
 		return err

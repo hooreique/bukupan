@@ -143,11 +143,7 @@ func (r *room) handle(p *peer, data []byte) bool {
 		return true
 	}
 	// The transaction is durable before any peer sees the result or receives an ACK.
-	history, e := r.store.History(p.author)
-	if e != nil {
-		p.failure(e, op.ID, 0)
-		return true
-	}
+	history, historyErr := r.store.History(p.author)
 	if !changed.Duplicate {
 		for other := range r.peers {
 			if other.view == 0 {
@@ -178,6 +174,10 @@ func (r *room) handle(p *peer, data []byte) bool {
 			}
 			other.enqueue(response{Type: kind, View: other.view, Revision: changed.Revision, Drawings: drawings, History: ownHistory})
 		}
+	}
+	if historyErr != nil {
+		p.failure(historyErr, op.ID, 0)
+		return true
 	}
 	p.enqueue(response{Type: "ack", ID: op.ID, Revision: changed.Revision, History: history})
 	return true

@@ -238,6 +238,53 @@ func TestFullyErasedStrokeReturnsOnUndo(t *testing.T) {
 	}
 }
 
+func TestErasingEmptySpaceDoesNotHideTheLastUndo(t *testing.T) {
+	s := testBoard(t)
+	author := randomID()
+	stroke := pen(author, point{0, 0})
+	applyEdit(t, s, stroke)
+	applyEdit(t, s, edit{ID: randomID(), Author: author, Action: randomID(), Kind: "erase", Width: 20, Points: []point{{100, 100}}})
+	history, err := s.History(author)
+	if err != nil || len(history) != 1 || history[0] != stroke.Action {
+		t.Fatalf("empty eraser entered undo history: %v %v", history, err)
+	}
+}
+
+func TestDenseViewKeepsDataAndCanLoadASmallerArea(t *testing.T) {
+	s := testBoard(t)
+	author := randomID()
+	op := pen(author, point{0, 0})
+	applyEdit(t, s, op)
+	// Seed one dense gesture in a fixture transaction. Per-edit durability is
+	// covered separately; this test concerns bounded reads without eviction.
+	tx, err := s.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	for i := 1; i <= maxViewStrokes; i++ {
+		op.ID = randomID()
+		op.Points = []point{{float64(i), 0}}
+		if err = insertStroke(tx, op); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.View(bounds{-10, -10, float64(maxViewStrokes + 10), 10}); !errors.Is(err, errDense) {
+		t.Fatalf("unbounded view accepted: %v", err)
+	}
+	drawings := boardView(t, s, bounds{-1, -1, 1, 1})
+	if len(drawings) == 0 || len(drawings) > 5 {
+		t.Fatalf("smaller area not isolated: %d", len(drawings))
+	}
+	var count int
+	if err := s.db.QueryRow("SELECT count(*) FROM strokes").Scan(&count); err != nil || count != maxViewStrokes+1 {
+		t.Fatalf("view limit discarded drawings: %d %v", count, err)
+	}
+}
+
 func TestStoreRejectsUnboundedInput(t *testing.T) {
 	s := testBoard(t)
 	for _, op := range []edit{

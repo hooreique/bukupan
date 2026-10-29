@@ -24,24 +24,39 @@
     board: "다른 그림판의 미전송 작업이 이 기기에 남아 있어요.",
     protocol: "서버와 연결할 수 없어요. 페이지를 새로고침해 주세요.",
   };
+  try {
+    renderer = createStrokeRenderer(canvas, codec.MAX_LINES + 128 * 128 + 128, redraw);
+    if (!renderer) throw new Error("WebGL2");
+  } catch {
+    document.querySelector("#controls").hidden = true;
+    status.textContent = "이 그림판은 WebGL2를 지원하는 브라우저가 필요해요.";
+    return;
+  }
   function updateStatus() {
     let message = problem ? explanations[problem] : !connected ? "연결을 기다리고 있어요" : !ready || waitingView || dirtyView ? "그림을 불러오는 중" : pending.size || gesture?.dirty ? "저장 중…" : "저장됨";
     if (!connected && pending.size && !problem) message = `연결 대기 · 미전송 작업 ${pending.size}개 보관 중`;
-    status.textContent = message;
+    if (status.textContent !== message) status.textContent = message;
     status.dataset.state = problem ? "error" : ready && !waitingView && !dirtyView && !pending.size && !gesture?.dirty ? "saved" : "waiting";
     recovery.hidden = !problem && pending.size === 0;
     document.querySelector("#export").hidden = pending.size === 0;
     document.querySelector("#discard").hidden = !problem || pending.size === 0;
     document.querySelector("#retry").hidden = !problem;
     undo.disabled = !canEdit() || !history.length || pending.size > 0 || !!gesture;
-    document.querySelector("#zoom-level").textContent = `${Math.round(camera.zoom * 100)}%`;
+    const zoomLevel = document.querySelector("#zoom-level"), zoomText = `${Math.round(camera.zoom * 100)}%`;
+    if (zoomLevel.textContent !== zoomText) zoomLevel.textContent = zoomText;
     canvas.dataset.tool = space ? "move" : tool;
   }
   function canEdit() { return ready && connected && !waitingView && !dirtyView && !problem && pending.size < 128; }
   function preview() {
     const result = [...drawings.values()];
+    let remaining = 128 * 128;
     for (const record of pending.values()) {
-      if (record.board === board && record.op.kind === "pen" && !drawings.has(record.id)) result.push({ width: record.op.width, lines: world.lines(record.op.points) });
+      if (record.board === board && record.op.kind === "pen" && !drawings.has(record.id)) {
+        const lines = world.lines(record.op.points);
+        if (lines.length > remaining) break;
+        remaining -= lines.length;
+        result.push({ width: record.op.width, lines });
+      }
     }
     if (gesture?.kind === "pen" && gesture.dirty) result.push({ width: gesture.width, lines: world.lines(gesture.points) });
     return result;
@@ -60,6 +75,9 @@
   }
   function loadView() {
     if (!connected || waitingView) return;
+    // A hello or an earlier response can satisfy a scheduled camera refresh.
+    // Cancel its timer so it cannot disable drawing again after readiness.
+    clearTimeout(viewTimer);
     requestedArea = world.viewport(camera, width, height);
     waitingView = true; dirtyView = false; generation++;
     socket.send(codec.encode({ type: "view", board, author, view: generation, area: requestedArea }));
@@ -161,7 +179,8 @@
     if (gesture.touch && !gesture.started && !final) return;
     const points = gesture.points;
     enqueue({ id: codec.randomID(), author, action: gesture.action, kind: gesture.kind, width: gesture.width, points });
-    gesture.points = [points[points.length - 1]]; gesture.dirty = false; gesture.committed = true;
+    const last = points[points.length - 1];
+    gesture.points = [last]; gesture.area = [...last, ...last]; gesture.dirty = false;
   }
   function finishGesture() { flushGesture(true); gesture = null; redraw(); updateStatus(); }
   function appendPoint(p) {
@@ -172,10 +191,11 @@
     const steps = Math.ceil(Math.max(Math.abs(p[0] - last[0]), Math.abs(p[1] - last[1])) / 3000);
     for (let step = 1; step <= steps; step++) {
       const next = [last[0] + (p[0] - last[0]) * step / steps, last[1] + (p[1] - last[1]) * step / steps];
-      const first = gesture.points[0];
-      if (gesture.points.length >= 64 || Math.abs(next[0] - first[0]) > 6000 || Math.abs(next[1] - first[1]) > 6000) flushGesture();
+      const area = gesture.area;
+      if (gesture.points.length >= 64 || Math.max(area[2], next[0]) - Math.min(area[0], next[0]) > 6000 || Math.max(area[3], next[1]) - Math.min(area[1], next[1]) > 6000) flushGesture();
       if (pending.size >= 128) break;
       gesture.points.push(next); gesture.dirty = true;
+      gesture.area = [Math.min(gesture.area[0], next[0]), Math.min(gesture.area[1], next[1]), Math.max(gesture.area[2], next[0]), Math.max(gesture.area[3], next[1])];
     }
     redraw(); updateStatus();
   }
@@ -196,8 +216,9 @@
       gesture = { kind: "move", pointer: event.pointerId, previous: locationOf(event) }; return;
     }
     if (!canEdit()) return;
+    const point = worldPoint(event);
     gesture = { kind: tool, pointer: event.pointerId, action: codec.randomID(), width: tool === "erase" ? 28 / camera.zoom : 3,
-      points: [worldPoint(event)], dirty: true, touch: event.pointerType === "touch", started: event.pointerType !== "touch", origin: locationOf(event) };
+      points: [point], area: [...point, ...point], dirty: true, touch: event.pointerType === "touch", started: event.pointerType !== "touch", origin: locationOf(event) };
     redraw(); updateStatus();
   });
   canvas.addEventListener("pointermove", event => {
@@ -278,6 +299,7 @@
     if ([...pending.values()].some(record => !record.persisted)) { event.preventDefault(); event.returnValue = ""; }
   });
   document.querySelector("#retry").addEventListener("click", () => {
+    if (!db) { location.reload(); return; }
     problem = null;
     for (const record of pending.values()) if (!record.persisted) persist(record);
     if (socket?.readyState === WebSocket.OPEN) socket.close(); else connect();
@@ -296,14 +318,6 @@
     updateStatus();
   });
   try {
-    renderer = createStrokeRenderer(canvas, codec.MAX_LINES + 128 * 128 + 128, redraw);
-    if (!renderer) throw new Error("WebGL2");
-  } catch {
-    document.querySelector("#controls").hidden = true;
-    status.textContent = "이 그림판은 WebGL2를 지원하는 브라우저가 필요해요.";
-    return;
-  }
-  try {
     author = localStorage.getItem("bukupan.author");
     if (!codec.id(author)) { author = codec.randomID(); localStorage.setItem("bukupan.author", author); }
     try {
@@ -319,7 +333,6 @@
     for (const record of records) { pending.set(record.id, { ...record, persisted: true }); order = Math.max(order, record.order); }
   } catch {
     problem = "local"; updateStatus();
-    document.querySelector("#retry").onclick = () => location.reload();
     return;
   }
   window.addEventListener("resize", resize);

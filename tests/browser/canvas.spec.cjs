@@ -141,3 +141,35 @@ test('local storage failure blocks sending and retry preserves the in-memory wor
   await page.getByRole('button',{name:'다시 시도',exact:true}).click();await saved(page);
   await expect.poll(()=>pixels(otherPage,[[300,240]])).toEqual([255]);
 });
+
+test('initial readiness is stable when the scheduled camera refresh elapses', async ({ page, appURL }) => {
+  await page.clock.install({time:new Date('2026-01-01T00:00:00Z')});
+  await page.clock.pauseAt(new Date('2026-01-01T00:00:01Z'));
+  await page.addInitScript(()=>{
+    window.viewRequests=0;
+    const send=WebSocket.prototype.send;
+    WebSocket.prototype.send=function(data){
+      if(JSON.parse(new TextDecoder().decode(data)).type==='view') window.viewRequests++;
+      return send.call(this,data);
+    };
+  });
+  await openDrawing(page,appURL);
+  // Advance past the 80 ms debounce, independent of browser/CI scheduling.
+  await page.clock.runFor(100);
+  await expect(page.locator('#status')).toHaveText('저장됨');
+  expect(await page.evaluate(()=>window.viewRequests)).toBe(1);
+});
+
+test('unsupported WebGL2 shows guidance without starting input or a connection', async ({ page, appURL }) => {
+  let connections=0;
+  page.on('websocket',()=>connections++);
+  await page.addInitScript(()=>{
+    const getContext=HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext=function(type,...args){return type==='webgl2'?null:getContext.call(this,type,...args);};
+  });
+  await page.goto(appURL);
+  await expect(page.locator('#status')).toHaveText(/WebGL2/);
+  await expect(page.locator('#controls')).toBeHidden();
+  await page.mouse.click(300,240);await page.keyboard.press('b');
+  expect(connections).toBe(0);
+});
