@@ -6,12 +6,13 @@ buildGoModule {
     root = ../.;
     fileset = lib.fileset.unions [
       ../go.mod
+      ../go.sum
       ../testdata
       ./.
     ];
   };
-  vendorHash = null;
-  env.CGO_ENABLED = "0";
+  vendorHash = "sha256-IUyZTlMqht5sx010M3kc96okTBsRrL1e+6m1VVWvK0k=";
+  env.CGO_ENABLED = "1";
   subPackages = [ "server" ];
   ldflags = [
     "-s"

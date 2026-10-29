@@ -6,10 +6,12 @@
 }:
 let
   tools = callPackage ./test-tools.nix { };
+  backend = callPackage ../server/package.nix { };
   source = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
       ../go.mod
+      ../go.sum
       ../server
       ../client
       ../cli
@@ -36,6 +38,7 @@ let
         cp -r ${source} source
         chmod -R u+w source
         cd source
+        cp -r ${backend.goModules} vendor
         export GOCACHE="$TMPDIR/go-cache"
         export GOPATH="$TMPDIR/go"
         export XDG_CACHE_HOME="$TMPDIR/cache"
