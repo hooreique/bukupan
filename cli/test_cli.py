@@ -1,5 +1,6 @@
 """Isolated CLI integration checks; never contacts the user's systemd instance."""
 import importlib.util
+from contextlib import closing
 import os
 from pathlib import Path
 import signal
@@ -232,7 +233,74 @@ class Commands(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 self.command('serve', '--listen-host', '::1', '--listen-port', '65535')
             execute.assert_called_once_with(cli.SERVER + '/bin/bukupan-server',
-                                            ['bukupan-server', '-listen', '[::1]:65535'])
+                                            ['bukupan-server', '-listen', '[::1]:65535', '-db',
+                                             str(self.base / 'data space/bukupan/board.sqlite')])
+
+    def test_backup_command(self):
+        source = self.base / 'drawing space.sqlite'
+        destination = self.base / 'backup space.sqlite'
+        with patch.object(cli.os, 'execv', side_effect=SystemExit) as execute:
+            with self.assertRaises(SystemExit):
+                self.command('backup', '--database', source, '--output', destination)
+            execute.assert_called_once_with(cli.SERVER + '/bin/bukupan-server',
+                                            ['bukupan-server', '-db', str(source), '-backup', str(destination)])
+
+    @unittest.skipUnless(sys.platform == 'linux', 'systemd requires Linux')
+    def test_service_preserves_explicit_database(self):
+        source = self.base / 'drawing space %h.sqlite'
+        source.write_bytes(b'keep user data')
+        self.command('service', 'install', '--database', source)
+        env = (self.base / 'config space %h/bukupan/service.env').read_text()
+        self.assertIn('BUKUPAN_DB=' + cli.quoted(source) + '\n', env)
+        unit = (self.base / 'config space %h/systemd/user/bukupan.service').read_text()
+        self.assertIn('-db ${BUKUPAN_DB}', unit)
+        self.command('service', 'uninstall')
+        self.assertEqual(source.read_bytes(), b'keep user data')
+
+    def test_live_backup_and_exclusive_document(self):
+        import http.client
+        import socket
+        import sqlite3
+        import time
+        executable = os.environ.get('BUKUPAN_TEST_SERVER')
+        if not executable:
+            self.skipTest('BUKUPAN_TEST_SERVER is required')
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1', 0))
+            port = sock.getsockname()[1]
+        source = self.base / 'live drawing.sqlite'
+        destination = self.base / 'backup.sqlite'
+        backend = subprocess.Popen([executable, '-db', str(source), '-listen', f'127.0.0.1:{port}'])
+        self.addCleanup(backend.wait, timeout=5)
+        self.addCleanup(backend.terminate)
+        deadline = time.monotonic() + 5
+        while True:
+            connection = http.client.HTTPConnection('127.0.0.1', port, timeout=.2)
+            try:
+                connection.request('GET', '/healthz')
+                if connection.getresponse().status == 200:
+                    break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    self.fail('Backend did not start')
+                time.sleep(.02)
+            finally:
+                connection.close()
+        result = subprocess.run([executable, '-db', str(source), '-listen', '127.0.0.1:0'], capture_output=True, timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b'already served', result.stderr)
+        subprocess.run([executable, '-db', str(source), '-backup', str(destination)], check=True, capture_output=True, timeout=5)
+        with closing(sqlite3.connect(source)) as original, closing(sqlite3.connect(destination)) as backup:
+            self.assertEqual(original.execute('SELECT * FROM board').fetchall(), backup.execute('SELECT * FROM board').fetchall())
+            self.assertEqual(backup.execute('PRAGMA integrity_check').fetchone(), ('ok',))
+        previous = destination.read_bytes()
+        result = subprocess.run([executable, '-db', str(source), '-backup', str(destination)], capture_output=True, timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(destination.read_bytes(), previous)
+        missing = self.base / 'missing.sqlite'
+        result = subprocess.run([executable, '-db', str(missing), '-backup', str(self.base / 'unused.sqlite')], capture_output=True, timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(missing.exists())
 
     @unittest.skipUnless(sys.platform == 'linux', 'systemd requires Linux')
     def test_explicit_linger(self):

@@ -9,7 +9,7 @@ gofmt -w server/*.go
 nixfmt flake.nix
 ```
 
-`nix run .#dev-server`는 Go 서버(`127.0.0.1:3001`)와 Caddy(`127.0.0.1:3000`)를 함께 실행하고 종료 시 둘 다 정리한다. `nix run .#dev-server -- --host 192.168.0.6`으로 Caddy의 바인딩 인터페이스를 변경할 수 있다. 소스의 클라이언트를 바로 반영하려면 `BUKUPAN_CLIENT_ROOT="$PWD/client" nix run .#dev-server`로 실행한다. `BUKUPAN_DEV_ADDRESS`(기본 `:3000`)로 Caddy의 사이트 주소·포트를, `BUKUPAN_UPSTREAM`(기본 `127.0.0.1:3001`)으로 Go 서버의 주소를 변경할 수 있다. Go 변경 후에는 재시작한다.
+`nix run .#dev-server`는 Go 서버(`127.0.0.1:3001`)와 Caddy(`127.0.0.1:3000`)를 함께 실행하고 종료 시 둘 다 정리한다. `nix run .#dev-server -- --host 192.168.0.6`으로 Caddy의 바인딩 인터페이스를 변경할 수 있다. 소스의 클라이언트를 바로 반영하려면 `BUKUPAN_CLIENT_ROOT="$PWD/client" nix run .#dev-server`로 실행한다. `BUKUPAN_DEV_ADDRESS`(기본 `:3000`)로 Caddy의 사이트 주소·포트를, `BUKUPAN_UPSTREAM`(기본 `127.0.0.1:3001`)으로 Go 서버의 주소를 변경할 수 있다. Go 변경 후에는 재시작한다. 개발 문서는 `$XDG_DATA_HOME/bukupan-dev/board.sqlite`에 따로 보존하며 `BUKUPAN_DEV_DB`로 바꾼다. 운영 문서를 개발용으로 재사용하지 않는다.
 
 flake는 `x86_64-linux`, `aarch64-linux`, `aarch64-darwin`만 지원한다. 평가 전에 새 파일을 `git add`해야 한다. Raspberry Pi에서는 해당 저장소에서 동일한 빌드·실행 명령을 쓴다.
 
@@ -135,7 +135,7 @@ nix shell --inputs-from . nixpkgs#python3 nixpkgs#resvg --command python3 script
 
 ## 운영 CLI와 검증
 
-`cli/bukupan.py`는 Python 표준 라이브러리만 사용한다. `cli/package.nix`가 서버·클라이언트·Caddy 템플릿 store 경로와 실행 의존성을 주입한다. `site`는 사이트 파일과 사이트별 GC root만, `service`는 Linux systemd 사용자 서비스와 백엔드 GC root만 관리한다. `serve`는 `exec`로 서버를 실행한다. 서버 Go 플래그와 공유 프로토콜은 독립적으로 유지한다.
+`cli/bukupan.py`는 Python 표준 라이브러리만 사용한다. `cli/package.nix`가 서버·클라이언트·Caddy 템플릿 store 경로와 실행 의존성을 주입한다. `site`는 사이트 파일과 사이트별 GC root만, `service`는 Linux systemd 사용자 서비스와 백엔드 GC root만 관리한다. `serve`는 `exec`로 서버를 실행한다. `serve`·`service install`의 `--database`는 절대 경로로 서버에 전달한다. 서비스 제거는 DB에 손대지 않는다. `backup --database … --output …`은 서버의 일관된 백업 기능을 실행한다. 서버 Go 플래그와 공유 프로토콜은 독립적으로 유지한다.
 
 ```sh
 nix develop -c ./scripts/test integration
@@ -143,6 +143,6 @@ nix flake check
 nix build .#bukupan .#bukupan-server .#bukupan-client .#dev-server
 ```
 
-CLI 테스트는 임시 XDG 디렉터리와 systemctl·loginctl·nix-store 대역을 사용한다. 실제 사용자 서비스는 조작하지 않는다. `integration` suite는 실제 Go 백엔드와 임시 Caddy로 정적 파일·healthz·WebSocket 연결도 확인한다. Python unittest를 직접 실행하면 `BUKUPAN_TEST_SERVER`가 필요한 검사가 생략될 수 있으므로 전체 검증에는 공통 실행기를 사용한다. Linux에서는 공백과 `%`를 포함한 유닛 경로를 `systemd-analyze verify`로 확인한다. Python 캐시는 Git에서 제외한다.
+CLI 테스트는 임시 XDG 디렉터리와 systemctl·loginctl·nix-store 대역을 사용한다. 실제 사용자 서비스는 조작하지 않는다. `integration` suite는 실제 Go 백엔드와 임시 Caddy로 정적 파일·healthz·WebSocket 연결도 확인한다. Python unittest를 직접 실행하면 `BUKUPAN_TEST_SERVER`가 필요한 검사가 생략될 수 있으므로 전체 검증에는 공통 실행기를 사용한다. Linux에서는 공백과 `%`를 포함한 유닛 경로를 `systemd-analyze verify`로 확인한다. Python 캐시는 Git에서 제외한다. 실제 서버를 실행해 DB 중복 서빙 거부와 실행 중 백업·기존 백업 보호도 확인한다. 세 플랫폼의 Nix checks에는 같은 SQLite 소스를 vendor로 공급하므로 sandbox에서 Go 모듈을 다운로드하지 않는다.
 
 운영·전환 절차는 README를 따른다. Caddy master 설정 import와 검증·적용은 사용자가 수행한다. 기존 설치 파일과 복사 자산을 자동 인수·삭제하지 않는다.

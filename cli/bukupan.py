@@ -97,7 +97,12 @@ def main():
     sites = site.add_subparsers(dest='action', required=True)
     service = groups.add_parser('service', help='manage the systemd user backend')
     services = service.add_subparsers(dest='action', required=True)
-    listen(groups.add_parser('serve', help='run backend in foreground'))
+    serve = groups.add_parser('serve', help='run backend in foreground')
+    listen(serve)
+    database(serve)
+    backup = groups.add_parser('backup', help='save a consistent live database snapshot to a new file')
+    database(backup)
+    backup.add_argument('--output', required=True, type=absolute, help='new backup file (must not exist)')
     for action in ('install', 'uninstall'):
         command = sites.add_parser(action, description={
             'install': 'Write or update a managed site atomically. Import it from your Caddyfile and reload Caddy externally.',
@@ -114,7 +119,7 @@ def main():
             'stop': 'Disable automatic startup and stop the service.',
             'restart': 'Restart or start the service, preserving automatic startup. Requires linger.',
             'status': 'Pass through systemd status output and exit code.',
-            'uninstall': 'Remove the service and backend GC root, preserving sites.',
+            'uninstall': 'Remove the service and backend GC root, preserving sites and drawing data.',
         }[action])
         if action in ('install', 'start', 'restart'):
             command.add_argument('--enable-linger', action='store_true', help='enable user linger if needed')
@@ -122,9 +127,12 @@ def main():
             command.add_argument('--disable-linger', action='store_true', help='also disable user linger')
         if action == 'install':
             listen(command)
+            database(command)
     args = parser.parse_args()
     if args.group == 'serve':
-        os.execv(SERVER + '/bin/bukupan-server', ['bukupan-server', '-listen', address(args)])
+        os.execv(SERVER + '/bin/bukupan-server', ['bukupan-server', '-listen', address(args), '-db', str(args.database)])
+    if args.group == 'backup':
+        os.execv(SERVER + '/bin/bukupan-server', ['bukupan-server', '-db', str(args.database), '-backup', str(args.output)])
     if args.group == 'service' and sys.platform != 'linux':
         raise ValueError('service commands require Linux systemd')
     config = absolute(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config')))
@@ -168,16 +176,16 @@ def main():
         for path in (unit, env, gcroot):
             if exists(path):
                 raise ValueError(f'already installed or conflicting path: {path}')
-        if any(c in str(env) for c in '\n\r\0'):
+        if any(c in str(env) + str(args.database) for c in '\n\r\0'):
             raise ValueError('paths must not contain control characters')
         linger(args.enable_linger)
         ctl('show-environment')
         root(gcroot, SERVER)
         try:
-            atomic(env, MARKER + 'BUKUPAN_LISTEN=' + quoted(address(args)) + '\n', 0o600)
+            atomic(env, MARKER + 'BUKUPAN_LISTEN=' + quoted(address(args)) + '\nBUKUPAN_DB=' + quoted(args.database) + '\n', 0o600)
             # EnvironmentFile takes one literal path, including spaces; quotes
             # become part of the path. Only systemd specifiers need escaping.
-            atomic(unit, MARKER + '[Unit]\nDescription=Bukupan\nAfter=network.target\n\n[Service]\nEnvironmentFile=' + str(env).replace('%', '%%') + '\nExecStart=' + SERVER + '/bin/bukupan-server -listen ${BUKUPAN_LISTEN}\nRestart=on-failure\nRestartSec=2s\n\n[Install]\nWantedBy=default.target\n')
+            atomic(unit, MARKER + '[Unit]\nDescription=Bukupan\nAfter=network.target\n\n[Service]\nEnvironmentFile=' + str(env).replace('%', '%%') + '\nExecStart=' + SERVER + '/bin/bukupan-server -listen ${BUKUPAN_LISTEN} -db ${BUKUPAN_DB}\nRestart=on-failure\nRestartSec=2s\n\n[Install]\nWantedBy=default.target\n')
             ctl('daemon-reload')
             ctl('disable', '--now', 'bukupan.service')
         except BaseException:
@@ -215,6 +223,12 @@ def main():
 def address(args):
     host = args.listen_host
     return f'[{host}]:{args.listen_port}' if ':' in host else f'{host}:{args.listen_port}'
+
+def database(parser):
+    base = Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share')))
+    parser.add_argument('--database', type=absolute, default=absolute(base / 'bukupan/board.sqlite'),
+                        help='SQLite document path (default: $XDG_DATA_HOME/bukupan/board.sqlite)')
+
 
 def listen(parser):
     parser.add_argument('--listen-host', default='127.0.0.1', type=host, help='backend host (default: 127.0.0.1)')
