@@ -1,4 +1,4 @@
-// Run with node scripts/test-codec.js; uses the same fixtures as Go.
+// Run with node --test tests/unit/codec.test.cjs; fixtures are shared with Go.
 const fs = require("node:fs");
 const vm = require("node:vm");
 const assert = require("node:assert/strict");

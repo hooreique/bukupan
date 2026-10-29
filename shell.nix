@@ -1,15 +1,17 @@
 {
   mkShell,
-  go,
-  python3,
-  caddy,
+  lib,
+  callPackage,
   nixfmt,
+  withBrowser ? false,
 }:
-mkShell {
-  packages = [
-    go
-    python3
-    caddy
-    nixfmt
-  ];
-}
+let
+  tools = callPackage ./nix/test-tools.nix { };
+in
+mkShell (
+  tools.environment
+  // lib.optionalAttrs withBrowser tools.browserEnvironment
+  // {
+    packages = tools.base ++ [ nixfmt ] ++ lib.optionals withBrowser tools.browser;
+  }
+)

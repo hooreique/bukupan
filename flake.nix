@@ -37,12 +37,24 @@
         }
       );
 
-      checks = forAllSys (pkgs: {
-        cli = pkgs.callPackage ./nix/checks.nix { };
-      });
+      checks = forAllSys (
+        pkgs:
+        let
+          tests = pkgs.callPackage ./nix/checks.nix { };
+        in
+        {
+          inherit (tests)
+            unit
+            race
+            integration
+            browser
+            ;
+        }
+      );
 
       devShells = forAllSys (pkgs: {
         default = pkgs.callPackage ./shell.nix { };
+        browser = pkgs.callPackage ./shell.nix { withBrowser = true; };
       });
     };
 }

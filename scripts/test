@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""Shared entry point for devShell, Nix checks and CI. No package downloads."""
+
+import argparse
+import os
+from pathlib import Path
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('suite', choices=['fast', 'race', 'integration', 'browser', 'all'])
+    parser.add_argument('browser_args', nargs=argparse.REMAINDER,
+                        help='browser only: arguments after -- are passed to Playwright')
+    args = parser.parse_args()
+    if args.browser_args and args.suite != 'browser':
+        parser.error('extra arguments are supported only for the browser suite')
+    browser_args = args.browser_args
+    if browser_args[:1] == ['--']:
+        browser_args = browser_args[1:]
+    suites = ['fast', 'race', 'integration', 'browser'] if args.suite == 'all' else [args.suite]
+
+    required = {'go'}
+    if 'fast' in suites:
+        required.add('node')
+    if 'integration' in suites or 'browser' in suites:
+        required.add('caddy')
+    if 'integration' in suites and sys.platform == 'linux':
+        required.add('systemd-analyze')
+    if 'browser' in suites:
+        required.add('playwright')
+    missing = sorted(tool for tool in required if not shutil.which(tool))
+    if missing:
+        shell = '.#browser' if 'browser' in suites else '.'
+        parser.error(f"missing {', '.join(missing)}; run through nix develop {shell}")
+
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
+
+    def run(*command):
+        print('+ ' + shlex.join(map(str, command)), flush=True)
+        subprocess.run(command, cwd=ROOT, env=env, check=True)
+
+    with tempfile.TemporaryDirectory(prefix='bukupan-tests-') as temporary:
+        if 'integration' in suites or 'browser' in suites:
+            backend = Path(temporary) / 'bukupan-server'
+            run('go', 'build', '-o', str(backend), './server')
+            env['BUKUPAN_TEST_SERVER'] = str(backend)
+        for suite in suites:
+            if suite == 'fast':
+                run('go', 'test', './...')
+                unit_tests = sorted(ROOT.glob('tests/unit/**/*.test.cjs'))
+                if not unit_tests:
+                    parser.error('no JS unit tests found')
+                run('node', '--test', *(str(test.relative_to(ROOT)) for test in unit_tests))
+            elif suite == 'race':
+                run('go', 'test', '-race', './...')
+            elif suite == 'integration':
+                run(sys.executable, '-m', 'unittest', 'discover', '-s', 'cli', '-v')
+            elif suite == 'browser':
+                run('playwright', 'test', '--config', 'tests/browser/playwright.config.cjs',
+                    *browser_args)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except subprocess.CalledProcessError as error:
+        sys.exit(error.returncode if error.returncode > 0 else 1)
+    except KeyboardInterrupt:
+        sys.exit(130)

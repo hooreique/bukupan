@@ -1,0 +1,63 @@
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: core (${{ matrix.system }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+          - system: aarch64-darwin
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: Unit, race and integration checks
+        env:
+          SYSTEM: ${{ matrix.system }}
+        run: >-
+          nix build --no-link -L
+          ".#checks.$SYSTEM.unit"
+          ".#checks.$SYSTEM.race"
+          ".#checks.$SYSTEM.integration"
+      - name: Build packages
+        run: nix build --no-link .#bukupan .#bukupan-server .#bukupan-client .#dev-server
+
+  browser:
+    name: browser (Chromium, Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      # Use the same entry point as checks.browser, keeping failure artifacts
+      # in the workspace so Actions can upload them even when tests fail.
+      - name: Browser checks
+        run: nix develop .#browser --command ./scripts/test browser
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-diagnostics
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
