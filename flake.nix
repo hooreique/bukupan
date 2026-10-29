@@ -1,5 +1,5 @@
 {
-  description = "부끄판 — a shared, fading canvas";
+  description = "부끄판 — a shared, permanent canvas";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 

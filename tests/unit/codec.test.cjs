@@ -1,30 +1,28 @@
-// Run with node --test tests/unit/codec.test.cjs; fixtures are shared with Go.
-const fs = require("node:fs");
-const vm = require("node:vm");
-const assert = require("node:assert/strict");
-vm.runInThisContext(fs.readFileSync("client/codec.js", "utf8"));
-const fixture = name => Uint8Array.from(Buffer.from(fs.readFileSync(`testdata/${name}.hex`, "utf8").trim(), "hex")).buffer;
-const s = {clientID: Uint8Array.from({length:16}, (_,i)=>i), sequence:0x12345678, x1:Math.fround(0.1), y1:0.25, x2:0.5, y2:1};
-assert.deepEqual(strokeCodec.encodeDraw([s]), fixture("input"));
-for (const name of ["draw","snapshot"]) {
-  const m=strokeCodec.decode(fixture(name));
-  assert.equal(m.now,0x010203040506);
-  assert.equal(m.segments[0].at,m.now);
-  assert.equal(m.segments[0].id,strokeCodec.key(s.clientID,s.sequence));
-  for (const k of ["x1","y1","x2","y2","sequence"]) assert.equal(m.segments[0][k],s[k]);
-}
-function rejects(mutate, name="draw") {const b=fixture(name);mutate(new DataView(b));assert.throws(()=>strokeCodec.decode(b));}
-for (const [offset,value] of [[0,2],[1,1],[1,4],[2,0],[2,129],[12,1]]) rejects(v=>v.setUint8(offset,value));
-rejects(v=>v.setUint16(2,16001,true),"snapshot");
-rejects(v=>v.setUint32(12,0,true),"snapshot");
-rejects(v=>v.setBigUint64(4,2n**63n,true));
-for (const v of [NaN,Infinity,-Infinity,-0.1,1.1]) for (let offset=36;offset<52;offset+=4) rejects(d=>d.setFloat32(offset,v,true));
-for (const b of ["text",new ArrayBuffer(0),fixture("draw").slice(0,51),new ArrayBuffer(53)]) assert.throws(()=>strokeCodec.decode(b));
-for (const n of [0,16000]) {
- const b=new ArrayBuffer(16+n*44),v=new DataView(b);
- v.setUint8(0,1);v.setUint8(1,3);v.setUint16(2,n,true);v.setUint32(12,10000,true);
- assert.equal(strokeCodec.decode(b).segments.length,n);
-}
-assert.throws(()=>strokeCodec.encodeDraw([]));
-assert.throws(()=>strokeCodec.encodeDraw(Array(129).fill(s)));
-console.log("PASS codec fixtures, validation, empty and maximum snapshots");
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const codec = require('../../client/codec.js');
+const fixture = require('../../testdata/protocol-v2.json');
+const frame = value => new TextEncoder().encode(JSON.stringify(value)).buffer;
+
+test('v2 shared fixture preserves double coordinates and operation identity', () => {
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(codec.encode(fixture.request))), fixture.request);
+  assert.deepEqual(codec.decode(frame(fixture.response)), fixture.response);
+});
+test('reject unsupported versions, malformed geometry and unbounded messages', () => {
+  for (const change of [
+    m => {m.v=1;}, m => {m.type='unknown';}, m => {m.revision=1e20;}, m => {m.view=-1;},
+    m => {m.drawings[0].lines=[[0,0,1]];}, m => {m.drawings[0].lines=[[0,0,null,1]];},
+    m => {m.drawings[0].lines=[[0,0,1e10,1]];}, m => {m.drawings[0].width=-1;},
+    m => {m.drawings[0].id='bad';}, m => {m.history=['bad'];},
+    m => {m.drawings[0].lines=Array(40001).fill([0,0,0,0]);},
+  ]) { const m=structuredClone(fixture.response);change(m);assert.throws(()=>codec.decode(frame(m))); }
+  assert.throws(()=>codec.decode(new Uint8Array([255]).buffer));
+  assert.throws(()=>codec.decode(new ArrayBuffer(8*1024*1024+1)));
+  assert.throws(()=>codec.encode({ huge:'x'.repeat(32768) }));
+});
+test('empty snapshot and maximum visible geometry are accepted', () => {
+  const empty=codec.decode(frame({v:2,type:'snapshot',view:1,revision:0,history:[]}));
+  assert.deepEqual(empty.drawings,[]);
+  const large=structuredClone(fixture.response);large.drawings[0].lines=Array(40000).fill([0,0,1,1]);
+  assert.equal(codec.decode(frame(large)).drawings[0].lines.length,40000);
+});

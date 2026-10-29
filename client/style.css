@@ -1,34 +1,40 @@
-html,
-body {
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  overflow: hidden;
-  overscroll-behavior: none;
-  background: #000;
+:root { color-scheme: dark; font-family: system-ui, -apple-system, sans-serif; color: #eee; background: #000; }
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; }
+[hidden] { display: none !important; }
+canvas { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: crosshair; }
+canvas[data-tool="move"] { cursor: grab; }
+canvas[data-tool="move"]:active { cursor: grabbing; }
+#eraser-cursor { position: fixed; pointer-events: none; width: 28px; height: 28px; border: 1px solid #ffbbd1; border-radius: 50%; transform: translate(-50%, -50%); }
+button, summary { -webkit-tap-highlight-color: transparent; }
+button { border: 0; color: #ccc; background: transparent; font: inherit; cursor: pointer; touch-action: manipulation; border-radius: 10px; }
+button:hover { color: white; background: #292329; }
+button:focus-visible, summary:focus-visible { outline: 2px solid #ffbbd1; outline-offset: 3px; }
+button:disabled { opacity: .3; cursor: default; background: none; }
+.save-state { position: fixed; top: max(20px, env(safe-area-inset-top)); left: max(20px, env(safe-area-inset-left)); right: 20px; pointer-events: none; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; font-size: 12px; color: #999; }
+.brand { color: #e1bac8; font-weight: 650; letter-spacing: -.04em; font-size: 15px; }
+#status { padding: 4px 0; text-shadow: 0 1px 4px #000; }
+#status[data-state="error"] { color: #ffbbd1; }
+#recovery { pointer-events: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+#recovery button { font-size: 12px; padding: 8px 10px; background: #20191e; color: #ffdae7; }
+.toolbar, .navigation { display: flex; align-items: center; gap: 4px; border: 1px solid #352d32; background: #161215ee; box-shadow: 0 4px 28px #0007; }
+.toolbar { position: fixed; bottom: max(24px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); padding: 6px; border-radius: 18px; }
+.toolbar button { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 4px; width: 60px; height: 58px; font-size: 11px; }
+.toolbar button[aria-pressed="true"] { background: #f0bfd0; color: #2b151e; }
+.toolbar svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.divider { height: 24px; width: 1px; background: #40363c; margin: 0 3px; flex-shrink: 0; }
+.navigation { position: fixed; bottom: max(30px, env(safe-area-inset-bottom)); right: max(20px, env(safe-area-inset-right)); border-radius: 13px; padding: 3px; }
+.navigation button { min-width: 38px; min-height: 40px; font-size: 21px; }
+.navigation #home { padding: 0 12px; font-size: 12px; }
+#zoom-level { min-width: 42px; text-align: center; font-size: 11px; font-variant-numeric: tabular-nums; color: #bba9b1; }
+.help { position: fixed; right: max(20px, env(safe-area-inset-right)); top: max(18px, env(safe-area-inset-top)); font-size: 12px; }
+.help summary { list-style: none; display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid #352d32; border-radius: 50%; cursor: pointer; color: #bba9b1; background: #161215; }
+.help summary::-webkit-details-marker { display: none; }
+.help[open] { width: min(300px, calc(100vw - 40px)); background: #161215; border: 1px solid #352d32; border-radius: 16px; padding: 16px; line-height: 1.8; }
+.help[open] summary { margin-left: auto; }
+.help p:last-child { margin-bottom: 0; color: #bba9b1; }
+@media (max-width: 850px) {
+  .navigation { bottom: calc(max(24px, env(safe-area-inset-bottom)) + 84px); right: 50%; transform: translateX(50%); }
+  .save-state { right: 60px; }
 }
-
-canvas {
-  position: fixed;
-  inset: 0;
-  display: block;
-  width: 100%;
-  height: 100%;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
-}
-
-.unsupported {
-  margin: 0;
-  display: grid;
-  place-items: center;
-  box-sizing: border-box;
-  min-height: 100%;
-  padding: 24px;
-  color: #fff;
-  font-family: sans-serif;
-  text-align: center;
-  line-height: 1.6;
-}
+@media (prefers-reduced-motion: no-preference) { button { transition: background-color .12s, color .12s; } }

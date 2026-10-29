@@ -23,6 +23,7 @@ class Commands(unittest.TestCase):
         self.addCleanup(lambda: (os.environ.clear(), os.environ.update(self.old_env)))
         os.environ['XDG_CONFIG_HOME'] = str(self.base / 'config space %h')
         os.environ['XDG_STATE_HOME'] = str(self.base / 'state space')
+        os.environ['XDG_DATA_HOME'] = str(self.base / 'data space')
         self.bin = self.base / 'bin'
         self.bin.mkdir()
         os.environ['PATH'] = str(self.bin) + ':' + os.environ['PATH']

@@ -18,6 +18,7 @@ async function freePort() {
 }
 
 async function stop(child) {
+  child.expectedExit = true;
   if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
   const exited = once(child, 'exit');
   child.kill('SIGTERM');
@@ -41,7 +42,7 @@ const test = base.extend({
   },
 
   // Every test owns a fresh single-room server; no shared development instance.
-  appURL: async ({}, use, testInfo) => {
+  app: async ({}, use, testInfo) => {
     if (!process.env.BUKUPAN_TEST_SERVER) {
       throw new Error('Run ./scripts/test browser to build the test backend first');
     }
@@ -68,7 +69,7 @@ const test = base.extend({
     const ready = async url => {
       await expect.poll(async () => {
         for (const child of children) {
-          if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) {
+          if (!child.expectedExit && (child.exitCode !== null || child.signalCode !== null || child.pid === undefined)) {
             throw new Error(`Test server exited before readiness:\n${logs.join('')}`);
           }
         }
@@ -82,7 +83,8 @@ const test = base.extend({
     };
     try {
       const backendPort = await freePort();
-      start('backend', process.env.BUKUPAN_TEST_SERVER, ['-listen', `127.0.0.1:${backendPort}`]);
+      const backendArgs = ['-listen', `127.0.0.1:${backendPort}`, '-db', path.join(temporary, 'board.sqlite')];
+      let backend = start('backend', process.env.BUKUPAN_TEST_SERVER, backendArgs);
       await ready(`http://127.0.0.1:${backendPort}/healthz`);
       const port = await freePort();
       const config = path.join(temporary, 'Caddyfile');
@@ -111,7 +113,17 @@ http://127.0.0.1:${port} {
       start('caddy', 'caddy', ['run', '--config', config, '--adapter', 'caddyfile']);
       const url = `http://127.0.0.1:${port}`;
       await ready(`${url}/healthz`);
-      await use(url);
+      await use({
+        url,
+        async pause() { await stop(backend); },
+        async resume() { backend = start('backend', process.env.BUKUPAN_TEST_SERVER, backendArgs); await ready(`${url}/healthz`); },
+        async crashAndRestart() {
+          backend.expectedExit = true;
+          const exited = once(backend, 'exit'); backend.kill('SIGKILL'); await exited;
+          backend = start('backend', process.env.BUKUPAN_TEST_SERVER, backendArgs);
+          await ready(`${url}/healthz`);
+        },
+      });
     } finally {
       await Promise.all(children.map(stop));
       await fs.rm(temporary, { recursive: true, force: true });
@@ -122,6 +134,8 @@ http://127.0.0.1:${port} {
       }
     }
   },
+
+  appURL: async ({ app }, use) => { await use(app.url); },
 
   // Covers all contexts, including the second participant in a sharing test.
   browserErrors: [async ({ browser }, use, testInfo) => {

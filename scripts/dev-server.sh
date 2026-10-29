@@ -71,7 +71,8 @@ cat > "$work_dir/Caddyfile" <<'CADDY'
 }
 CADDY
 
-bukupan-server -listen "$BUKUPAN_UPSTREAM" &
+dev_database=${BUKUPAN_DEV_DB:-${XDG_DATA_HOME:-$HOME/.local/share}/bukupan-dev/board.sqlite}
+bukupan-server -listen "$BUKUPAN_UPSTREAM" -db "$dev_database" &
 server_pid=$!
 XDG_CONFIG_HOME="$work_dir/config" XDG_DATA_HOME="$work_dir/data" \
   caddy run --config "$work_dir/Caddyfile" --adapter caddyfile &
@@ -81,4 +82,5 @@ if [[ "$dev_address" == :* ]]; then
   dev_address="$host$dev_address"
 fi
 printf '부끄판: http://%s (bind: %s)\n' "$dev_address" "$host"
+printf '개발 그림판 저장 위치: %s\n' "$dev_database"
 wait -n "$server_pid" "$proxy_pid"

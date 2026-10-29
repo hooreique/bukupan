@@ -111,7 +111,7 @@ func TestLargeOutputSnapshot(t *testing.T) {
 	defer client.Close()
 	client.SetDeadline(time.Now().Add(2 * time.Second))
 	ws := &websocket{conn: server}
-	payload := make([]byte, headerSize+maxSegments*snapshotRecordSize)
+	payload := make([]byte, maxOutput)
 	done := make(chan error, 1)
 	go func() { done <- ws.writeFrame(opBinary, payload) }()
 	var header [10]byte
