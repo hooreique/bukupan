@@ -41,6 +41,83 @@ master Caddyfile에 `import /path/to/sites/bukupan.caddy`를 추가한 뒤 전�
 
 기존 설치에서 전환할 때는 이전 사이트 설정과 `/srv/bukupan` 등의 복사 자산을 직접 확인·정리하고 새 `site install`과 `service install`을 실행한다. 이전 파일을 자동 인수하거나 삭제하지 않는다.
 
+## 이 서버에서 배포하기 (hooddy)
+
+이 저장소에서 “배포해줘”라는 지시를 받으면 아래 절차로 현재 소스를 빌드하고 운영 서비스를 갱신한다. 문서 수정만 요청한 경우에는 배포하지 않는다. `~/ws/buku-journal`과 동일하게 Nix 패키지, systemd 사용자 서비스, hooddy의 일반 Caddy 사이트를 사용한다. 이 저장소에는 `nix run .#deploy` 명령이 없으며 아래 단계를 직접 수행한다.
+
+현재 `song` 사용자의 운영 구성은 다음과 같다. 다른 계정이나 서버에서는 먼저 실제 설정을 확인한다.
+
+| 항목 | 값 |
+| --- | --- |
+| 작업 디렉터리 | `/home/song/ws/bukupan` |
+| 외부 주소 | `https://bukupan.hooreique.com` |
+| 백엔드 | `127.0.0.1:3001` (CLI 기본값 8080과 다름) |
+| 운영 DB | `/home/song/.local/share/bukupan/board.sqlite` |
+| 서비스 | `bukupan.service` (systemd 사용자 서비스) |
+| 서비스 설정 | `~/.config/bukupan/service.env` |
+| 사이트 파일 | `~/.config/hooddy/sites.d/bukupan.caddy` |
+| Caddy master | `~/.config/hooddy/Caddyfile` (`import sites.d/*.caddy` 포함) |
+| Caddy 실행 파일 | `~/.config/hooddy/caddy/bin/caddy` |
+
+명령은 이 서버의 `song` 사용자로 저장소 루트에서 실행한다. hooddy가 설치·실행 중이고 linger가 활성화되어 있어야 한다. 도메인과 외부 HTTPS 연결은 기존 hooddy 구성을 사용한다. master 설정과 다른 사이트는 그대로 유지한다.
+
+1. **운영 설정과 변경 사항 확인, 검증 및 빌드.** `service.env`의 DB 경로와 주소가 위 표와 다르면 실제 값을 이후 명령에도 반영한다. 새 파일이 Nix 소스에 포함되었는지 확인하고, 배포할 서버와 클라이언트를 같은 소스에서 빌드한다. 이 단계는 서비스 정지 전에 완료한다.
+
+   ```sh
+   git status --short
+   cat ~/.config/bukupan/service.env
+   systemctl --user cat bukupan.service
+   systemctl --user status hooddy.service --no-pager
+   loginctl show-user "$(id -un)" --property=Linger
+   nix flake check
+   nix build .#bukupan
+   ```
+
+2. **운영 DB 백업.** 실행 중에도 일관된 사본을 만들 수 있다. 출력 경로는 매번 새로 만들고, 백업이 성공한 뒤 진행한다.
+
+   ```sh
+   backup_dir=$(mktemp -d "$HOME/.local/state/bukupan/deploy-backup.XXXXXX")
+   ./result/bin/bukupan backup \
+     --database /home/song/.local/share/bukupan/board.sqlite \
+     --output "$backup_dir/board.sqlite"
+   cp ~/.config/bukupan/service.env "$backup_dir/service.env"
+   cp ~/.config/systemd/user/bukupan.service "$backup_dir/bukupan.service"
+   cp ~/.config/hooddy/sites.d/bukupan.caddy "$backup_dir/bukupan.caddy"
+   ```
+
+3. **서비스와 사이트 갱신.** 서비스 설치는 기존 설치를 덮어쓰지 않으므로 제거 후 재설치한다. 이 사이에는 잠시 접속이 중단된다. 제거해도 운영 DB와 사이트 파일은 보존된다. `restart`만으로는 새 패키지가 적용되지 않는다. 최초 설치라면 `uninstall`을 생략하고, linger가 꺼져 있으면 설치에 `--enable-linger`를 추가한다. 기존 설치에서는 linger를 해제하지 않는다.
+
+   ```sh
+   ./result/bin/bukupan service uninstall
+   ./result/bin/bukupan service install \
+     --listen-host 127.0.0.1 --listen-port 3001 \
+     --database /home/song/.local/share/bukupan/board.sqlite
+   ./result/bin/bukupan service start
+   curl --fail --silent --show-error http://127.0.0.1:3001/healthz
+
+   ./result/bin/bukupan site install \
+     --target "$HOME/.config/hooddy/sites.d/bukupan.caddy" \
+     --domain bukupan.hooreique.com \
+     --listen-host 127.0.0.1 --listen-port 3001
+   "$HOME/.config/hooddy/caddy/bin/caddy" validate \
+     --config "$HOME/.config/hooddy/Caddyfile" --adapter caddyfile
+   systemctl --user reload-or-restart hooddy.service
+   ```
+
+   각 명령이 성공한 경우에만 다음 명령을 실행한다. 특히 백엔드 상태 검사나 Caddy 검증 실패를 무시하고 reload하지 않는다. CLI가 관리하지 않는 파일의 교체를 거절하면 원인을 확인하고, 강제로 삭제하거나 덮어쓰지 않는다. 기존 그림을 초기화하거나 개발 DB로 바꾸지 않는다.
+
+4. **배포 확인.** 서비스 활성화·자동 시작, 외부 HTTPS와 정적 파일 응답을 확인한다. 브라우저를 새로고침해 기존 그림이 남아 있는지와 두 창 사이 그리기 동기화도 확인한다.
+
+   ```sh
+   systemctl --user is-active bukupan.service hooddy.service
+   systemctl --user is-enabled bukupan.service
+   curl --fail --silent --show-error https://bukupan.hooreique.com/healthz
+   curl --fail --silent --show-error --output /dev/null https://bukupan.hooreique.com/
+   journalctl --user -u bukupan.service -n 50 --no-pager
+   ```
+
+이 절차는 자동 롤백을 제공하지 않는다. 실패하면 실패한 단계와 서비스 로그를 확인하고 운영 DB와 백업을 보존한다. 이전 소스로 되돌릴 때도 해당 버전을 별도로 빌드한 뒤 같은 DB·주소로 서비스와 사이트를 함께 재설치하고 검증한다. DB 복원은 아래 복원 절차를 따른다. 배포 결과는 적용한 소스 버전, 외부 주소, 확인 결과와 백업 위치를 함께 보고한다.
+
 ## 저장과 백업
 
 운영 문서는 기본적으로 `~/.local/share/bukupan/board.sqlite`에 보관한다. XDG 경로와 무관하게 고정하려면 다음처럼 지정한다. `service install`은 설치 시 결정한 절대 경로를 서비스 환경 파일에 기록한다. 서비스 제거·재설치는 그림 데이터를 삭제하지 않는다.
