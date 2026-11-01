@@ -15,6 +15,7 @@
   let viewTimer, cameraTimer, ackTimer, reconnectTimer, retryDelay = 500;
   let history = [], problem = null, inFlight = null, order = Date.now();
   let persistence = Promise.resolve(), messages = Promise.resolve();
+  let recoveryPending = false, recoveryTimer = null;
   const drawings = new Map(), pending = new Map(), pointers = new Map();
   const explanations = {
     local: "기기에 작업을 보관하지 못했어요. 저장 공간을 확인해 주세요.",
@@ -37,8 +38,20 @@
     if (!connected && pending.size && !problem) message = `연결 대기 · 미전송 작업 ${pending.size}개 보관 중`;
     if (status.textContent !== message) status.textContent = message;
     status.dataset.state = problem ? "error" : ready && !waitingView && !dirtyView && !pending.size && !gesture?.dirty ? "saved" : "waiting";
-    recovery.hidden = !problem && pending.size === 0;
-    document.querySelector("#export").hidden = pending.size === 0;
+    // Ignore brief ACK waits, and keep recovery controls steady between edits.
+    const showPending = pending.size > 0;
+    if (problem || showPending === recoveryPending) {
+      clearTimeout(recoveryTimer); recoveryTimer = null;
+      if (problem) recoveryPending = showPending;
+    } else if (recoveryTimer === null) {
+      recoveryTimer = setTimeout(() => {
+        recoveryTimer = null;
+        recoveryPending = pending.size > 0;
+        updateStatus();
+      }, showPending ? 1000 : 800);
+    }
+    recovery.hidden = !problem && !recoveryPending;
+    document.querySelector("#export").hidden = !recoveryPending;
     document.querySelector("#discard").hidden = !problem || pending.size === 0;
     document.querySelector("#retry").hidden = !problem;
     undo.disabled = !canEdit() || !history.length || pending.size > 0 || !!gesture;
