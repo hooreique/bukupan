@@ -119,7 +119,7 @@ func TestEraseUndoPreservesOtherErasers(t *testing.T) {
 	applyEdit(t, s, second)
 	applyEdit(t, s, edit{ID: randomID(), Author: a, Kind: "undo", Target: first.Action})
 	view := boardView(t, s, bounds{-200, -100, 200, 100})
-	if len(view[0].Lines) != 2 || view[0].Lines[0][2] != 40 || view[0].Lines[1][0] != 60 {
+	if len(view) != 1 || len(view[0].Lines) != 2 || math.Abs(view[0].Lines[0][2]-40) > 1e-9 || math.Abs(view[0].Lines[1][0]-60) > 1e-9 {
 		t.Fatalf("other eraser lost: %+v", view)
 	}
 }
